@@ -9,6 +9,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using MySql.Data.MySqlClient;
+using System.Security.Cryptography;
 
 namespace Password_Inventory_App
 {
@@ -17,6 +18,7 @@ namespace Password_Inventory_App
         public Register()
         {
             InitializeComponent();
+            this.FormClosed += (s, e) => Application.Exit();
         }
 
         private void btnRegister_Click(object sender, EventArgs e)
@@ -63,7 +65,15 @@ namespace Password_Inventory_App
                 }
             }
         }
-
+        private string HashPassword(string password)
+        {
+            using (SHA256 sha256 = SHA256.Create())
+            {
+                byte[] bytes = Encoding.UTF8.GetBytes(password);
+                byte[] hash = sha256.ComputeHash(bytes);
+                return Convert.ToBase64String(hash);
+            }
+        }
         private void lnkForgotPassword_LinkClicked(object sender, LinkLabelLinkClickedEventArgs e)
         {
             this.Hide(); // hide register
@@ -80,45 +90,73 @@ namespace Password_Inventory_App
 
 private void btnlogin_Click(object sender, EventArgs e)
     {
-        string username = txtNewUsername.Text.Trim();
-        string password = txtNewPassword.Text.Trim();
+            string username = txtNewUsername.Text.Trim();
+            string password = txtNewPassword.Text.Trim();
 
-        if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
-        {
-            MessageBox.Show("Please fill in both username and password fields.", "Missing Info", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            return;
+            if (string.IsNullOrEmpty(username) || string.IsNullOrEmpty(password))
+            {
+                MessageBox.Show("Please fill in all fields.", "Input Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            string connectionString = "server=localhost;database=passwordinventory;uid=root;pwd=;";
+
+            using (MySqlConnection conn = new MySqlConnection(connectionString))
+            {
+                try
+                {
+                    conn.Open();
+                    string checkQuery = "SELECT COUNT(*) FROM users WHERE username = @username";
+                    MySqlCommand checkCmd = new MySqlCommand(checkQuery, conn);
+                    checkCmd.Parameters.AddWithValue("@username", username);
+
+                    int exists = Convert.ToInt32(checkCmd.ExecuteScalar());
+                    if (exists > 0)
+                    {
+                        MessageBox.Show("Username already exists.", "Registration Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+
+                    string hashedPassword = HashPassword(password);
+                    string insertQuery = "INSERT INTO users (username, password) VALUES (@username, @password)";
+                    MySqlCommand cmd = new MySqlCommand(insertQuery, conn);
+                    cmd.Parameters.AddWithValue("@username", username);
+                    cmd.Parameters.AddWithValue("@password", hashedPassword); // hashed password
+
+                    cmd.ExecuteNonQuery();
+
+                    // Auto-login after successful registration
+                    MessageBox.Show("Account created successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    NavigationalPanel navPanel = new NavigationalPanel();
+                    navPanel.FormClosed += (s, args) => Application.Exit(); // make sure the app exits when navPanel closes
+                    navPanel.Show();
+                    this.Hide();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Error: " + ex.Message, "Database Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
         }
 
-        string connectionString = "Data Source=localhost;Initial Catalog=passwordinventory;Integrated Security=True;";
-        using (SqlConnection conn = new SqlConnection(connectionString))
+        private void txtNewPassword_TextChanged(object sender, EventArgs e)
         {
-            try
-            {
-                conn.Open();
-                string query = "INSERT INTO users (username, password) VALUES (@username, @password)";
-                SqlCommand cmd = new SqlCommand(query, conn);
-                cmd.Parameters.AddWithValue("@username", username);
-                cmd.Parameters.AddWithValue("@password", password); // Consider hashing for security
 
-                int result = cmd.ExecuteNonQuery();
-                if (result > 0)
-                {
-                    MessageBox.Show("Account created successfully!", "Success", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    this.Hide();
-                    Login loginForm = new Login();
-                    loginForm.Show();
-                }
-                else
-                {
-                    MessageBox.Show("Failed to create account. Try again.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-            }
-            catch (SqlException ex)
-            {
-                MessageBox.Show("Error: " + ex.Message, "SQL Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
+        }
+
+        private void txtNewUsername_TextChanged(object sender, EventArgs e)
+        {
+
+        }
+
+        private void chkShowPassword_CheckedChanged(object sender, EventArgs e)
+        {
+            txtNewPassword.UseSystemPasswordChar = !chkShowPassword.Checked;
+        }
+
+        private void Register_Load(object sender, EventArgs e)
+        {
+
         }
     }
-
-}
 }
